@@ -1,3 +1,8 @@
+import {
+	TranslationOutputMode,
+	translationOutputModeAtom,
+} from "$/modules/settings/states";
+import { globalStore } from "$/states/store.ts";
 import type {
 	LyricLine as AppLyricLine,
 	LyricWord as AppLyricWord,
@@ -42,6 +47,34 @@ const RENAMED_METADATA_KEYS: Record<string, string> = {
 const EXPORT_RENAMED_METADATA_KEYS: Record<string, string> = {
 	songwriter: "songwriters",
 };
+//#endregion
+
+//#region 生成器配置
+/**
+ * 根据首选项中的翻译输出方式，生成默认的 TTML 生成器配置
+ *
+ * - {@link TranslationOutputMode.AppleMusic}：逐行翻译/音译写入 `<iTunesMetadata>`
+ * - {@link TranslationOutputMode.Amll}：逐行翻译/音译写入为内嵌的
+ *   `x-translation` / `x-roman`
+ */
+export function getDefaultGeneratorConfig(): Partial<GeneratorConfig> {
+	return {
+		useAppleFormatRules:
+			globalStore.get(translationOutputModeAtom) ===
+			TranslationOutputMode.AppleMusic,
+	};
+}
+
+/**
+ * 将调用方传入的生成器配置与首选项中的默认配置合并
+ *
+ * 调用方显式指定的字段优先于首选项
+ */
+function withDefaultGeneratorConfig(
+	config?: Partial<GeneratorConfig>,
+): Partial<GeneratorConfig> {
+	return { ...getDefaultGeneratorConfig(), ...config };
+}
 //#endregion
 
 //#region 底层 API
@@ -219,6 +252,20 @@ function postProcessLyricLines(amllResult: AmllLyricResult): AmllLyricResult {
 }
 
 /**
+ * 判断给定的歌词是否为逐行歌词
+ *
+ * 如果所有非背景人声的歌词行都只有一个音节，则判定为逐行歌词
+ */
+export function isLineTimingLyrics(
+	lyric: AmllLyricResult | AppTTMLLyric,
+): boolean {
+	const nonBgLines = lyric.lyricLines.filter((line) => !line.isBG);
+	return (
+		nonBgLines.length > 0 && nonBgLines.every((line) => line.words.length === 1)
+	);
+}
+
+/**
  * 便捷方法，将 AMLL 格式的歌词和元数据生成为 TTML 字符串
  *
  * 会对文本进行规范化，例如清理空格、移除背景人声括号等
@@ -233,7 +280,15 @@ export function amllToTTML(
 	config?: Partial<GeneratorConfig>,
 ): Result<string> {
 	const processedAmllResult = postProcessLyricLines(amllResult);
-	return rawAmllToTtml(processedAmllResult, options, config) as Result<string>;
+	const lineTiming = isLineTimingLyrics(amllResult);
+	return rawAmllToTtml(
+		processedAmllResult,
+		options,
+		withDefaultGeneratorConfig({
+			lineTiming,
+			...config,
+		}),
+	) as Result<string>;
 }
 
 /**

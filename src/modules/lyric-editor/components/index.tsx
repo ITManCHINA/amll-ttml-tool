@@ -10,8 +10,8 @@
  */
 
 import { Box, ContextMenu, Flex, Text } from "@radix-ui/themes";
-import { atom, useAtomValue, useSetAtom } from "jotai";
-import { splitAtom } from "jotai/utils";
+import { atom, useAtomValue, useSetAtom, useStore } from "jotai";
+import { selectAtom, splitAtom } from "jotai/utils";
 import { useSetImmerAtom } from "jotai-immer";
 import { focusAtom } from "jotai-optics";
 import {
@@ -45,6 +45,21 @@ const lyricLinesOnlyAtom = splitAtom(
 	focusAtom(lyricLinesAtom, (o) => o.prop("lyricLines")),
 );
 
+const lyricLineIdsAtom = selectAtom(
+	lyricLinesAtom,
+	(state) => state.lyricLines.map((line) => line.id),
+	(prev, next) =>
+		prev.length === next.length && prev.every((id, i) => id === next[i]),
+);
+
+const lyricIdToIndexMapAtom = selectAtom(lyricLineIdsAtom, (ids) => {
+	const map = new Map<string, number>();
+	ids.forEach((id, index) => {
+		map.set(id, index);
+	});
+	return map;
+});
+
 const findCurrentLineIndex = (lines: LyricLine[], currentTime: number) => {
 	const scan = (predicate?: (line: LyricLine) => boolean) => {
 		let previousIndex = -1;
@@ -69,14 +84,21 @@ const findCurrentLineIndex = (lines: LyricLine[], currentTime: number) => {
 };
 
 export const LyricLinesView: FC = forwardRef<HTMLDivElement>((_props, ref) => {
+	const store = useStore();
 	const editLyric = useAtomValue(lyricLinesOnlyAtom);
-	const lyricLines = useAtomValue(lyricLinesAtom).lyricLines;
 	const editLyricLines = useSetImmerAtom(lyricLinesAtom);
-	const viewRef = useRef<ViewportListRef>(null);
-	const viewElRef = useRef<HTMLDivElement>(null);
+	const setSelectedLines = useSetAtom(selectedLinesAtom);
 	const toolMode = useAtomValue(toolModeAtom);
+	const locateAction = useAtomValue(locateActionAtom);
+	const jumpAction = useAtomValue(outlineJumpActionAtom);
+
 	const { t } = useTranslation();
 	const { openFile } = useFileOpener();
+
+	const viewRef = useRef<ViewportListRef>(null);
+	const viewElRef = useRef<HTMLDivElement>(null);
+	const lastHandledLocateRef = useRef(locateAction);
+	const lastHandledJumpRef = useRef<number | null>(null);
 
 	const handlePasteTTML = useCallback(async () => {
 		try {
@@ -102,21 +124,17 @@ export const LyricLinesView: FC = forwardRef<HTMLDivElement>((_props, ref) => {
 			atom((get) => {
 				if (toolMode !== ToolMode.Sync) return;
 				const selectedLines = get(selectedLinesAtom);
-				let scrollToIndex = Number.NaN;
-				let i = 0;
-				for (const lineAtom of editLyric) {
-					const line = get(lineAtom);
-					if (selectedLines.has(line.id)) {
-						scrollToIndex = i;
-						break;
+				if (selectedLines.size === 0) return;
+				const idToIndexMap = get(lyricIdToIndexMapAtom);
+				for (const id of selectedLines) {
+					const index = idToIndexMap.get(id);
+					if (index !== undefined) {
+						return index;
 					}
-
-					i++;
 				}
-				if (Number.isNaN(scrollToIndex)) return;
-				return scrollToIndex;
+				return;
 			}),
-		[editLyric, toolMode],
+		[toolMode],
 	);
 	const scrollToIndex = useAtomValue(scrollToIndexAtom);
 
@@ -131,39 +149,39 @@ export const LyricLinesView: FC = forwardRef<HTMLDivElement>((_props, ref) => {
 		});
 	}, []);
 
+	const handleLocate = useCallback(() => {
+		const lines = store.get(lyricLinesAtom).lyricLines;
+		const currentTime = audioEngine.musicCurrentTime * 1000;
+		const index = findCurrentLineIndex(lines, currentTime);
+		if (index === -1) return;
+		scrollToLineIndex(index);
+		const targetLine = lines[index];
+		if (targetLine) {
+			setSelectedLines(new Set([targetLine.id]));
+		}
+	}, [store, scrollToLineIndex, setSelectedLines]);
+
 	useEffect(() => {
 		if (scrollToIndex === undefined) return;
 		scrollToLineIndex(scrollToIndex);
 	}, [scrollToIndex, scrollToLineIndex]);
 
-	const setSelectedLines = useSetAtom(selectedLinesAtom);
-
-	const handleLocate = useCallback(() => {
-		const currentTime = audioEngine.musicCurrentTime * 1000;
-		const index = findCurrentLineIndex(lyricLines, currentTime);
-		if (index === -1) return;
-		scrollToLineIndex(index);
-		const targetLine = lyricLines[index];
-		if (targetLine) {
-			setSelectedLines(new Set([targetLine.id]));
-		}
-	}, [lyricLines, scrollToLineIndex, setSelectedLines]);
-
-	const locateAction = useAtomValue(locateActionAtom);
 	useEffect(() => {
-		if (locateAction > 0) {
+		if (locateAction > 0 && locateAction !== lastHandledLocateRef.current) {
+			lastHandledLocateRef.current = locateAction;
 			handleLocate();
 		}
 	}, [locateAction, handleLocate]);
 
-	const jumpAction = useAtomValue(outlineJumpActionAtom);
 	useEffect(() => {
-		if (!jumpAction) return;
-		const targetIndex = lyricLines.findIndex((l) => l.id === jumpAction.id);
-		if (targetIndex !== -1) {
+		if (!jumpAction || jumpAction.ts === lastHandledJumpRef.current) return;
+		lastHandledJumpRef.current = jumpAction.ts;
+		const idToIndexMap = store.get(lyricIdToIndexMapAtom);
+		const targetIndex = idToIndexMap.get(jumpAction.id);
+		if (targetIndex !== undefined && targetIndex !== -1) {
 			scrollToLineIndex(targetIndex);
 		}
-	}, [jumpAction, lyricLines, scrollToLineIndex]);
+	}, [jumpAction, store, scrollToLineIndex]);
 
 	const { onPointerDown } = useLyricListDrag({
 		containerRef: viewElRef,

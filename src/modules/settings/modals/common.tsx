@@ -4,6 +4,7 @@ import {
 	History24Regular,
 	Keyboard12324Regular,
 	LocalLanguage24Regular,
+	MusicNote224Regular,
 	PaddingLeft24Regular,
 	PaddingRight24Regular,
 	Save24Regular,
@@ -11,6 +12,7 @@ import {
 	Stack24Regular,
 	Timer24Regular,
 	TopSpeed24Regular,
+	Translate24Regular,
 } from "@fluentui/react-icons";
 import {
 	Flex,
@@ -22,7 +24,12 @@ import {
 } from "@radix-ui/themes";
 import { useAtom } from "jotai";
 import { useTranslation } from "react-i18next";
-import { playbackRateAtom, volumeAtom } from "$/modules/audio/states";
+import {
+	playbackRateAtom,
+	stretchAlgorithmAtom,
+	volumeAtom,
+} from "$/modules/audio/states";
+import type { StretchAlgorithm } from "$/modules/ffmpeg/types";
 import { applyDefaultTtmlAuthorMetadata } from "$/modules/project/logic/default-metadata";
 import { GithubIcon } from "$/modules/project/modals/PlatformIcons";
 import {
@@ -37,6 +44,8 @@ import {
 	smartFirstWordAtom,
 	smartLastWordAtom,
 	syncJudgeModeAtom,
+	TranslationOutputMode,
+	translationOutputModeAtom,
 } from "$/modules/settings/states";
 import { lyricLinesAtom } from "$/states/main";
 import {
@@ -50,6 +59,9 @@ const textFieldActionStyle = { width: "min(220px, 100%)" };
 
 export const SettingsCommonTab = () => {
 	const [layoutMode, setLayoutMode] = useAtom(layoutModeAtom);
+	const [translationOutputMode, setTranslationOutputMode] = useAtom(
+		translationOutputModeAtom,
+	);
 	const [syncJudgeMode, setSyncJudgeMode] = useAtom(syncJudgeModeAtom);
 	const [keyBindingTriggerMode, setKeyBindingTriggerMode] = useAtom(
 		keyBindingTriggerModeAtom,
@@ -58,6 +70,7 @@ export const SettingsCommonTab = () => {
 	const [smartLastWord, setSmartLastWord] = useAtom(smartLastWordAtom);
 	const [volume, setVolume] = useAtom(volumeAtom);
 	const [playbackRate, setPlaybackRate] = useAtom(playbackRateAtom);
+	const [stretchAlgorithm, setStretchAlgorithm] = useAtom(stretchAlgorithmAtom);
 	const [autosaveEnabled, setAutosaveEnabled] = useAtom(autosaveEnabledAtom);
 	const [autosaveInterval, setAutosaveInterval] = useAtom(autosaveIntervalAtom);
 	const [autosaveLimit, setAutosaveLimit] = useAtom(autosaveLimitAtom);
@@ -170,6 +183,61 @@ export const SettingsCommonTab = () => {
 								</Select.Item>
 								<Select.Item value={LayoutMode.Advance}>
 									{t("settings.common.layoutModeOptions.advance", "高级模式")}
+								</Select.Item>
+							</Select.Content>
+						</Select.Root>
+					}
+				/>
+			</SettingsGroup>
+
+			<SettingsGroup title={t("settings.group.translationOutput", "导出")}>
+				<SettingsRow
+					icon={<Translate24Regular />}
+					title={t("settings.common.translationOutputMode", "歌词导出方式")}
+					description={
+						<>
+							{t(
+								"settings.common.translationOutputModeDesc.line1",
+								"AMLL 样式将逐行翻译以 x-translation 内嵌在歌词行中，",
+							)}
+							<br />
+							{t(
+								"settings.common.translationOutputModeDesc.line2",
+								"x-bg 有行起始时间与结束时间。",
+							)}
+							<br />
+							<br />
+							{t(
+								"settings.common.translationOutputModeDesc.line3",
+								"Apple Music 样式将翻译写入 <head> 的 iTunesMetadata 中，",
+							)}
+							<br />
+							{t(
+								"settings.common.translationOutputModeDesc.line4",
+								"但无 x-bg 行时间。",
+							)}
+						</>
+					}
+					action={
+						<Select.Root
+							value={translationOutputMode}
+							onValueChange={(v) =>
+								setTranslationOutputMode(v as TranslationOutputMode)
+							}
+						>
+							<Select.Trigger />
+							<Select.Content>
+								<Select.Item value={TranslationOutputMode.Amll}>
+									{t(
+										"settings.common.translationOutputModeOptions.amll",
+										"AMLL 样式",
+									)}
+								</Select.Item>
+								<Select.Item value={TranslationOutputMode.AppleMusic}>
+									{t(
+										"settings.common.translationOutputModeOptions.appleMusic",
+										"Apple Music 样式",
+									)}
 								</Select.Item>
 							</Select.Content>
 						</Select.Root>
@@ -379,6 +447,41 @@ export const SettingsCommonTab = () => {
 						/>
 					</Flex>
 				</SettingsRow>
+
+				<SettingsRow
+					icon={<MusicNote224Regular />}
+					title={t("settings.common.stretchAlgorithm", "音频变速算法")}
+					description={
+						stretchAlgorithm === "spectral"
+							? t(
+									"settings.common.stretchAlgorithmDesc.spectral",
+									"Spectral（频域相位声码器）：保真度更高，但可能略微增加资源占用",
+								)
+							: t(
+									"settings.common.stretchAlgorithmDesc.wsola",
+									"WSOLA（时域波形相似叠加）：旧的变速算法。音质较差，但占用低",
+								)
+					}
+					action={
+						<Select.Root
+							value={stretchAlgorithm}
+							onValueChange={(v) => setStretchAlgorithm(v as StretchAlgorithm)}
+						>
+							<Select.Trigger />
+							<Select.Content>
+								<Select.Item value="spectral">
+									{t(
+										"settings.common.stretchAlgorithmOptions.spectral",
+										"Spectral",
+									)}
+								</Select.Item>
+								<Select.Item value="wsola">
+									{t("settings.common.stretchAlgorithmOptions.wsola", "WSOLA")}
+								</Select.Item>
+							</Select.Content>
+						</Select.Root>
+					}
+				/>
 			</SettingsGroup>
 
 			<SettingsGroup title={t("settings.group.autosave", "自动保存")}>
